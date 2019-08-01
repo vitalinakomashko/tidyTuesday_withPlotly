@@ -1,0 +1,294 @@
+---
+title: "Tidy Tuesday from 20190730: Video Games Dataset"
+author: "Vitalina Komashko"
+date: "7/31/2019"
+output: 
+ html_document:
+  toc: true
+  toc_depth: 2
+  toc_float: true
+  highlight: pygments
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## My goals
+
+1. Use plotly instead of ggplot2 for figures.
+2. No more than 3 hours from getting the data to generating the final report.
+
+Later: repeat in Python. 
+
+
+Load libraries
+
+```{r libs, message=FALSE}
+library(dplyr)
+library(plotly)
+```
+
+
+
+## Read the data
+
+```{r read-data, cache=TRUE}
+video_games <- readr::read_csv("https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2019/2019-07-30/video_games.csv")
+```
+
+## Clean up the data
+
+### release_date
+
+Convert to date format:
+
+```{r}
+video_games$release_date <- as.Date(video_games$release_date, format = "%b %d, %Y")
+```
+
+
+### owners
+
+**owners** is shown in N1 .. N2 format so I will assume that this is minimum and
+maximum number of owners. I will extract the columns and create corresponding
+columns with the maximum and the minimum number of players.
+
+```{r}
+temp <- video_games$owners %>% stringr::str_split(., pattern = stringr::fixed(".."))
+temp_min <- temp %>% sapply(., "[", 1) %>% 
+  stringr::str_trim(., side = "both") %>% 
+  stringr::str_replace_all(., pattern = ",", "") %>% 
+  as.numeric()
+temp_max <- temp %>% sapply(., "[", 2) %>% 
+  stringr::str_trim(., side = "both") %>% 
+  stringr::str_replace_all(., pattern = ",", "") %>%
+  as.numeric()
+video_games <- video_games %>% select(-owners) %>% mutate(min_owners = temp_min,
+                                                          max_owners = temp_max)
+```
+
+### game
+
+Review missing values:
+
+```{r}
+video_games %>% filter(is.na(game)) %>% summarise(total = n())
+video_games %>% filter(is.na(game))
+```
+
+Remove missing values for games
+
+```{r}
+video_games <- video_games %>% filter(!is.na(game))
+```
+
+
+### developer and publisher
+
+Are there any missing both developer and publisher:
+
+```{r, results="asis"}
+video_games %>% filter(is.na(developer) & is.na(publisher)) %>% summarise(total = n())
+video_games %>% filter(is.na(developer) & is.na(publisher))
+```
+
+
+
+
+## Review the data
+
+```{r, review-first-10-rows}
+DT::datatable(video_games[1:10, ])
+```
+
+
+```{r skim-data, results = "asis"}
+skimr::skim(video_games) %>% skimr::kable()
+```
+
+
+Some games are duplicated and it seems that they have multiple release dates
+
+```{r duplicated-games}
+video_games %>% group_by(game, developer, publisher) %>%
+  summarise(total = n()) %>% filter(total > 1)
+video_games %>% group_by(game) %>%
+  summarise(total = n(), release_dates = paste(release_date, collapse = ", ")) %>% filter(total > 1)
+```
+
+Spot check of a few games did show different release dates. Here are the
+screenshots for "18 Wheels of Steel: American Long Haul" from the browsing page
+and from the game page.
+
+
+## Price over time
+
+```{r}
+video_games %>% arrange(release_date) %>% 
+  plot_ly(x = ~release_date, y = ~price, type = "scatter", mode = "markers", text = ~game) %>%
+          layout(title = "Relationship between release date and the price", 
+                 xaxis = list("release date", zeroline = FALSE), 
+                 yaxis = list("game price, USD", zeroline = FALSE))
+
+```
+
+## Developer and publishers with the most games
+
+Had to filter the developers to remove missing and also select only the developers
+that put out at least 15 games due to the large number.
+
+```{r}
+video_games %>% filter(!is.na(developer)) %>% group_by(developer) %>% 
+  summarise(total_games = n_distinct(game)) %>% filter(total_games > 15) %>%
+  arrange(total_games) %>%
+  plot_ly(x = ~developer, y = ~total_games, type = "bar") %>%
+  layout(title = "Most prolific developers",
+         xaxis = list(title = list(text = ""), 
+                      showspikes = TRUE, spikedash = "solid", spikecolor = "red",
+                      showgrid = TRUE, categoryorder = "array", categoryarray = ~total_games,
+                      tickangle = 45), 
+         yaxis = list(title = list(text = "games"))) 
+```
+
+Similar approach to the publishers, but change the game minimum to 50
+
+```{r}
+video_games %>% filter(!is.na(publisher)) %>% group_by(publisher) %>% 
+  summarise(total_games = n_distinct(game)) %>% filter(total_games > 50) %>%
+  arrange(total_games) %>%
+  plot_ly(x = ~publisher, y = ~total_games, type = "bar") %>%
+  layout(title = "Most prolific publishers",
+         xaxis = list(title = list(text = ""), 
+                      showspikes = TRUE, spikedash = "solid", spikecolor = "red",
+                      showgrid = TRUE, categoryorder = "array", categoryarray = ~total_games,
+                      tickangle = 45), 
+         yaxis = list(title = list(text = "games"))) 
+```
+
+My husband used to work for Big Fish Games...
+
+How many developers are also publishers and how many games do they have?
+
+```{r}
+video_games %>% filter(!is.na(developer) & !is.na(publisher)) %>% 
+  filter(developer == publisher) %>% group_by(publisher) %>% 
+  summarise(total_games = n_distinct(game)) %>% filter(total_games > 15) %>%
+  arrange(total_games) %>%
+  plot_ly(x = ~publisher, y = ~total_games, type = "bar") %>%
+  layout(title = "Most prolific devlopers who are also publishers",
+         xaxis = list(title = list(text = ""), 
+                      showspikes = TRUE, spikedash = "solid", spikecolor = "red",
+                      showgrid = TRUE, categoryorder = "array", categoryarray = ~total_games,
+                      tickangle = 45), 
+         yaxis = list(title = list(text = "games")))
+```
+
+## Games that are owned my most people 
+
+Ownership will be considered as the max number of owners
+
+```{r}
+video_games %>% arrange(desc(max_owners)) %>% slice(1:100) %>% 
+  plot_ly(x = ~game) %>% 
+  add_trace(y = ~max_owners, name = "max owners", type = "scatter", mode = "markers") %>%
+  add_trace(y = ~min_owners, name = "min owners", type = "scatter", mode = "markers") %>%
+  layout(title = "Top 100 most owned games",
+         xaxis = list(title = list(text = ""),
+                      tickangle = 45),
+         yaxis = list(side = "left", title = "owners"))
+```
+Dota2 is the clear winner. My husband commented that it is also a free to play
+game which will definitely contribute the the overall number of people owning it.
+
+
+## Are the most owned games also have the highest scores?
+
+```{r}
+video_games %>% arrange(desc(max_owners)) %>% slice(1:100) %>% 
+  plot_ly(x = ~max_owners, y = ~metascore, text = ~game, type = "scatter", mode = "markers") %>% 
+  layout(title = "Top 100 most owned games and their metascore",
+         xaxis = list(title = "maximum estimated number of owners"),
+         yaxis = list(title = "metascore"))
+```
+
+Not necessarily! Again, tapping into my husband's knowledge of video games, he 
+explained that some of the games weren't available through Steam right away. 
+
+
+## Many hardcore players?
+
+Compare average and median time played for each game in the last two weeks (do
+remove the missing values and 0)
+
+```{r}
+video_games %>% filter(!is.na(average_playtime) & !is.na(median_playtime) & 
+                         average_playtime != 0 & median_playtime != 0) %>%
+  plot_ly(x = ~average_playtime, y = ~median_playtime, 
+          type = "scatter", 
+          mode = "markers", 
+          hoverinfo = "text", 
+          text = ~paste0("average: ", average_playtime, 
+                                             "\nmedian: ", median_playtime,
+                                             "\ngame: ", game)) %>% 
+  layout(title = "Average vs median playtime",
+         xaxis = list(title = "average over two weeks, min"),
+         yaxis = list(title = "median over two weeks, min"),
+         shapes = list(type = "line", x0 = 0, y0 = 0, x1 = 1, y1 = 1, 
+                       yref = "paper", xref = "paper", 
+                       line = list(color = "red")))
+```
+
+The points below the diagonal line have average larger than median which means
+that a lot more people don't spend too much time playing the game; the points
+above the diagonal line have median larger than the average which means that 
+those games have a few very hard core players (they spend a lot of time playing
+the game).
+
+## Conclusions
+
+I have certainly not explored all information in the data. Of course, it would be
+worthwhile looking at the date of release and the number of minutes playes. Are
+older games still holding up?
+
+From conversation with my husband it seems that it is valuable to have some 
+domain knowledge about this area and therefore additional variables. For example,
+information about where the game was realeased first (console?), whether the game
+is free to play and how many players play a certain game. 
+
+For this first time I definitely spent less time had I used ggplot2
+library instead of plotly, however, this wasn't the goal. 
+
+
+### Problems with plotly
+
+I have observed a strange behavior with plotly when I was trying to plot the top 
+100 games owned by most people and order the x axis by the maximum number of 
+owners:
+
+
+```{r}
+video_games %>% arrange(desc(max_owners)) %>% slice(1:100) %>% 
+  plot_ly(x = ~game) %>% 
+  add_trace(y = ~max_owners, 
+            name = "max owners", 
+            type = "scatter", 
+            mode = "markers") %>%
+  add_trace(y = ~min_owners, 
+            name = "min owners", 
+            type = "scatter",
+            mode = "markers") %>%
+  layout(title = "Top 100 most owned games",
+         xaxis = list(title = list(text = ""),
+                      tickangle = 45, 
+                      categoryorder = "array", 
+                      categoryarray = ~ max_owners),
+         yaxis = list(side = "left", title = "owners"))
+```
+
+Why in this case the x axis labels are cut off and the first 2 values in the x
+axis are 200,000,000? I also seem to replicate the bahavior when I use 
+`categoryarray = ~min_owners`, but then I have 100,000,000. I think this is a
+reproducible example that can be posted as a question on stack overflow. 
+
+
