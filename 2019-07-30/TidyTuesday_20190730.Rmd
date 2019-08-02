@@ -1,17 +1,16 @@
 ---
-title: "Tidy Tuesday from 20190730: Video Games Dataset"
+title: "Tidy Tuesday from 2019-07-30: Video Games Dataset"
 author: "Vitalina Komashko"
 date: "7/31/2019"
 output: 
  html_document:
   toc: true
   toc_depth: 2
-  toc_float: true
   highlight: pygments
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+```{r setup, include=FALSE, warning = FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache.path = "../cache_all/20190730/")
 ```
 
 ## My goals
@@ -22,7 +21,7 @@ knitr::opts_chunk$set(echo = TRUE)
 Later: repeat in Python. 
 
 
-Load libraries
+**Load libraries**
 
 ```{r libs, message=FALSE}
 library(dplyr)
@@ -33,11 +32,14 @@ library(plotly)
 
 ## Read the data
 
+[Link](https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2019/2019-07-30/video_games.csv) 
+to the file.
+
 ```{r read-data, cache=TRUE}
 video_games <- readr::read_csv("https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2019/2019-07-30/video_games.csv")
 ```
 
-## Clean up the data
+## Clean up the variables
 
 ### release_date
 
@@ -73,8 +75,16 @@ video_games <- video_games %>% select(-owners) %>% mutate(min_owners = temp_min,
 Review missing values:
 
 ```{r}
-video_games %>% filter(is.na(game)) %>% summarise(total = n())
-video_games %>% filter(is.na(game))
+video_games %>% filter(is.na(game)) %>% 
+  summarise(total = n()) %>% 
+  knitr::kable(format = "html", 
+               caption = "Number of rows where game name is missing",
+               align = "l") %>%
+  kableExtra::kable_styling()
+video_games %>% filter(is.na(game)) %>% 
+  knitr::kable(format = "html", caption = "Rows with missing game names",
+               align = "c") %>% 
+  kableExtra::kable_styling()
 ```
 
 Remove missing values for games
@@ -86,41 +96,58 @@ video_games <- video_games %>% filter(!is.na(game))
 
 ### developer and publisher
 
-Are there any missing both developer and publisher:
+Are there any missing both **developer** and **publisher** columns?
 
-```{r, results="asis"}
-video_games %>% filter(is.na(developer) & is.na(publisher)) %>% summarise(total = n())
-video_games %>% filter(is.na(developer) & is.na(publisher))
+```{r}
+video_games %>% filter(is.na(developer) & is.na(publisher)) %>% 
+  summarise(total = n()) %>% 
+  knitr::kable(format = "html", 
+               caption = "Number of rows missing developer and publisher names",
+               align = "c") %>% 
+  kableExtra::kable_styling()
+video_games %>% filter(is.na(developer) & is.na(publisher)) %>% 
+  DT::datatable()
 ```
 
 
+## Preview the data after the cleaning steps
 
+Only the first 10 rows because the dataset is large, see below results of 
+`skimr::skim()`
 
-## Review the data
-
-```{r, review-first-10-rows}
-DT::datatable(video_games[1:10, ])
+```{r review-first-10-rows}
+DT::datatable(video_games[1:10, ], rownames = FALSE)
 ```
 
+## Generate variable summary
 
-```{r skim-data, results = "asis"}
+```{r skim-data, results="asis"}
 skimr::skim(video_games) %>% skimr::kable()
 ```
 
 
-Some games are duplicated and it seems that they have multiple release dates
+Some game names are found multiple times: 
 
 ```{r duplicated-games}
 video_games %>% group_by(game, developer, publisher) %>%
-  summarise(total = n()) %>% filter(total > 1)
+  summarise(total = n()) %>% filter(total > 1) %>%
+  DT::datatable(caption = "Games listed multiple times")
 video_games %>% group_by(game) %>%
-  summarise(total = n(), release_dates = paste(release_date, collapse = ", ")) %>% filter(total > 1)
+  summarise(total = n(), 
+            release_dates = paste(release_date, collapse = ", ")) %>% 
+  filter(total > 1) %>%
+  DT::datatable(caption = "Duplicated games have more than 1 release date")
 ```
 
-Spot check of a few games did show different release dates. Here are the
-screenshots for "18 Wheels of Steel: American Long Haul" from the browsing page
-and from the game page.
+Spot check for one game on Steam's website did show different release dates. Here are the
+screenshots for "18 Wheels of Steel: American Long Haul" from the [browsing page](https://store.steampowered.com/search/?term=18+Wheels+of+Steel%3A+American+Long+Haul)
+(release date is Jan 29, 2008)
 
+![browse](figs/browse_shot.png)
+
+and from the [game page](https://store.steampowered.com/app/12520/18_Wheels_of_Steel_American_Long_Haul/) (release date is Dec 3, 2007).
+
+![browse](figs/game_page.png)
 
 ## Price over time
 
@@ -133,60 +160,80 @@ video_games %>% arrange(release_date) %>%
 
 ```
 
+Seems like there is a trend in terms of the price but not huge. We do observe
+a few outliers.
+
 ## Developer and publishers with the most games
 
-Had to filter the developers to remove missing and also select only the developers
-that put out at least 15 games due to the large number.
+Select only the developers that put out at least 15 games for a smaller plot.
 
 ```{r}
-video_games %>% filter(!is.na(developer)) %>% group_by(developer) %>% 
-  summarise(total_games = n_distinct(game)) %>% filter(total_games > 15) %>%
+video_games %>% filter(!is.na(developer)) %>% 
+  group_by(developer) %>% 
+  summarise(total_games = n_distinct(game)) %>% 
+  filter(total_games > 15) %>%
   arrange(total_games) %>%
   plot_ly(x = ~developer, y = ~total_games, type = "bar") %>%
   layout(title = "Most prolific developers",
          xaxis = list(title = list(text = ""), 
-                      showspikes = TRUE, spikedash = "solid", spikecolor = "red",
-                      showgrid = TRUE, categoryorder = "array", categoryarray = ~total_games,
+                      showspikes = TRUE, 
+                      spikedash = "solid", 
+                      spikecolor = "red",
+                      showgrid = TRUE, 
+                      categoryorder = "array", 
+                      categoryarray = ~total_games,
                       tickangle = 45), 
          yaxis = list(title = list(text = "games"))) 
 ```
 
-Similar approach to the publishers, but change the game minimum to 50
+Similar approach to the publishers, but change the game minimum to 50.
 
 ```{r}
-video_games %>% filter(!is.na(publisher)) %>% group_by(publisher) %>% 
-  summarise(total_games = n_distinct(game)) %>% filter(total_games > 50) %>%
+video_games %>% filter(!is.na(publisher)) %>% 
+  group_by(publisher) %>% 
+  summarise(total_games = n_distinct(game)) %>% 
+  filter(total_games > 50) %>%
   arrange(total_games) %>%
   plot_ly(x = ~publisher, y = ~total_games, type = "bar") %>%
   layout(title = "Most prolific publishers",
          xaxis = list(title = list(text = ""), 
-                      showspikes = TRUE, spikedash = "solid", spikecolor = "red",
-                      showgrid = TRUE, categoryorder = "array", categoryarray = ~total_games,
+                      showspikes = TRUE, 
+                      spikedash = "solid", 
+                      spikecolor = "red",
+                      showgrid = TRUE, 
+                      categoryorder = "array", 
+                      categoryarray = ~total_games,
                       tickangle = 45), 
          yaxis = list(title = list(text = "games"))) 
 ```
 
-My husband used to work for Big Fish Games...
+Hey! Big Fish Games!
 
 How many developers are also publishers and how many games do they have?
 
 ```{r}
 video_games %>% filter(!is.na(developer) & !is.na(publisher)) %>% 
-  filter(developer == publisher) %>% group_by(publisher) %>% 
-  summarise(total_games = n_distinct(game)) %>% filter(total_games > 15) %>%
+  filter(developer == publisher) %>% 
+  group_by(publisher) %>% 
+  summarise(total_games = n_distinct(game)) %>% 
+  filter(total_games > 15) %>%
   arrange(total_games) %>%
   plot_ly(x = ~publisher, y = ~total_games, type = "bar") %>%
   layout(title = "Most prolific devlopers who are also publishers",
          xaxis = list(title = list(text = ""), 
-                      showspikes = TRUE, spikedash = "solid", spikecolor = "red",
-                      showgrid = TRUE, categoryorder = "array", categoryarray = ~total_games,
+                      showspikes = TRUE, 
+                      spikedash = "solid", 
+                      spikecolor = "red",
+                      showgrid = TRUE, 
+                      categoryorder = "array", 
+                      categoryarray = ~total_games,
                       tickangle = 45), 
          yaxis = list(title = list(text = "games")))
 ```
 
-## Games that are owned my most people 
+## Most owned games
 
-Ownership will be considered as the max number of owners
+Ownership will be considered as the max number of owners.
 
 ```{r}
 video_games %>% arrange(desc(max_owners)) %>% slice(1:100) %>% 
